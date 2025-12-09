@@ -1,0 +1,28 @@
+# R
+.Rhistory
+.Rapp.history
+.RData
+.Ruserdata
+*.Rproj
+*.Rproj.user
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# Excel files (if large)
+# *.xlsx
+
+# Figures directory (if you don't want to track generated figures)
+# Virus_Figures/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+

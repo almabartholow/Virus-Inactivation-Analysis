@@ -23,16 +23,6 @@ venv/
 ENV/
 .venv
 
-# Data files (uncomment if you don't want to track large data files)
-# *.xlsx
-# *.csv
-# *.xls
-
-# Figures directory (uncomment if you don't want to track generated figures)
-# Virus_Figures/
-# figures/
-# output/
-
 # OS
 .DS_Store
 .DS_Store?
@@ -63,6 +53,34 @@ desktop.ini
 # Stan (for brms/Bayesian models)
 *.stan_compiled
 
-# R package files
-*.tar.gz
-*.Rcheck/
+# --- Trained / serialized models (regenerate locally; do not publish) ---
+*.rds
+*.joblib
+# Explicit: large brms object saved from Virus_Analysis.ipynb (not in git; restore from backup or re-save)
+/bayes_model_2.2.rds
+
+# --- Project data: review copies (not for publication) ---
+*_Review.xlsx
+CVB5_Review.xlsx
+
+# --- chlorine_tool: generated artifacts & local-only files ---
+chlorine_tool/artifacts/*
+!chlorine_tool/artifacts/.gitkeep
+
+chlorine_tool/model_benchmark.json
+
+chlorine_tool/data/submissions.jsonl
+
+# Shiny: deploy-time copies (bundle with rsconnect from local paths; not source of truth)
+chlorine_tool/shiny/Virus.xlsx
+chlorine_tool/shiny/virus.xlsx
+chlorine_tool/shiny/artifacts/*
+!chlorine_tool/shiny/artifacts/.gitkeep
+
+# rsconnect / Posit publishing (account URL, app id — keep local only)
+**/rsconnect/
+
+# Figures / outputs (uncomment if you add generated outputs under repo root)
+# Virus_Figures/
+# figures/
+# output/

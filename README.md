@@ -9,14 +9,15 @@ This project performs comprehensive statistical analysis of virus inactivation d
 ## Project Structure
 
 ```
-Virus_Code/
-├── README.md                           # This file
-├── Virus_Analysis.ipynb                # Main R notebook containing all analysis code
-└── Virus.xlsx                          # Input data file (required)
-    ├── Figure_1a                      # Data for CVB5 without ammonia
-    ├── Figure_1b                      # Data for CVB5 with ammonia
-    └── Lit_Review                      # Literature review data for comparison
+├── README.md
+├── Virus_Analysis.ipynb                # Main R notebook (all analysis code)
+├── Virus.xlsx                          # Input data (tracked; Lit_Review + experimental sheets)
+├── R/
+│   └── compare_rf_candidate.R          # Offline RF benchmark script (maintainers)
+└── chlorine_tool/                      # Estimator app (FastAPI + Shiny); see that folder
 ```
+
+`chlorine_tool/artifacts/` holds trained models after you run training; those files are **gitignored** and are not pushed to GitHub. **`Virus.xlsx`** is in the repository so clones can run the notebook, `R/compare_rf_candidate.R`, and `chlorine_tool` training without a separate download. For Shiny deployment, ensure the bundle includes **`rf_nonlinear.rds`** (and optional `model_meta.json`); the app also discovers `Virus.xlsx` in the repo root.
 
 ## Analysis Components
 

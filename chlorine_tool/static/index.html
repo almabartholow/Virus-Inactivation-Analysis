@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Chlorine virus inactivation — estimator</title>
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <header>
+      <h1>Chlorine inactivation rate estimator</h1>
+      <p>
+        <strong>Faulkner</strong> Lit_Review model (<code>Virus_Analysis.ipynb</code> exclusions); predicts
+        from <strong>pH</strong> and <strong>temperature</strong> with study effects zeroed.
+        <a href="https://github.com/almabartholow/Virus-Inactivation-Analysis">GitHub</a>
+      </p>
+      <p id="health-line">
+        <span class="status-dot bad" id="health-dot"></span>
+        <span id="health-text">Checking server…</span>
+      </p>
+      <p class="meta-info workflow-banner">
+        Predictions use the deployed <code>rf_nonlinear.rds</code>. New submissions do not affect results until
+        merged into Virus.xlsx and the model is retrained—see <strong>Model</strong> and <strong>Queue</strong>.
+      </p>
+    </header>
+
+    <nav class="tab-bar" role="tablist">
+      <button type="button" class="active" data-tab="estimate" role="tab">Estimator</button>
+      <button type="button" data-tab="data" role="tab">Data table</button>
+      <button type="button" data-tab="model" role="tab">Model</button>
+      <button type="button" data-tab="submit" role="tab">Submit study</button>
+      <button type="button" data-tab="queue" role="tab">Queue</button>
+    </nav>
+
+    <main>
+      <section id="panel-estimate" class="panel active" role="tabpanel">
+        <div class="grid-estimator">
+          <fieldset>
+            <legend>Inputs</legend>
+            <div class="row">
+              <label for="ph">pH</label>
+              <input type="number" id="ph" min="0" max="14" step="0.1" value="7.5" />
+            </div>
+            <div class="row">
+              <label for="temp">Temperature (°C)</label>
+              <input type="number" id="temp" step="0.5" value="20" />
+            </div>
+            <button type="button" class="primary" id="btn-estimate">Estimate</button>
+          </fieldset>
+
+          <div class="results-card">
+            <h2>Estimated inactivation rate constant</h2>
+            <div id="result-placeholder" class="meta-info">
+              Lit_Review scale: <code>Constant</code> (L·mg⁻¹·min⁻¹). Click Estimate.
+            </div>
+            <div id="result-body" style="display: none">
+              <div class="big-number" id="out-mean">—</div>
+              <div class="units" id="out-units"></div>
+              <div class="ci-line">
+                k across trees (2.5th–97.5th percentiles):
+                <span class="value" id="out-ci"></span>
+              </div>
+              <h3 class="results-subhead">4-log CT</h3>
+              <p class="meta-info ct-explainer">
+                CT = −ln(10⁻⁴)/k. Conservative CT uses k at the <strong>5th percentile</strong> across trees;
+                2.5–97.5% k bands describe tree spread, not a sample CI.
+              </p>
+              <div class="ct-conservative-block">
+                <div class="ci-line">
+                  Conservative CT
+                  <span class="value" id="out-ct-cons">—</span>
+                  <span class="ct-inline-unit">mg·min/L</span>
+                </div>
+              </div>
+              <div class="ci-line">
+                CT from mean k:
+                <span class="value" id="out-ct-mean">—</span>
+                <span class="ct-inline-unit">mg·min/L</span>
+              </div>
+              <div class="ci-line">
+                CT from those k percentiles (−ln(10⁻⁴)/k each; descriptive):
+                <span class="value" id="out-ct-range">—</span>
+                <span class="ct-inline-unit">mg·min/L</span>
+              </div>
+            </div>
+            <div id="warn-box" class="warn-banner" style="display: none"></div>
+            <div id="err-box" class="err-banner" style="display: none"></div>
+          </div>
+        </div>
+      </section>
+
+      <section id="panel-data" class="panel" role="tabpanel">
+        <p class="meta-info">
+          All columns from <code>Lit_Review</code> in Virus.xlsx. Approved submissions appear here only after
+          you merge them into that sheet (not automatic).
+        </p>
+        <p class="meta-info">
+          Filters: strain text match; pH ±0.51 and temp ±2.51 when those fields are set—leave blank for the
+          full sheet. Row counts differ from Faulkner training rows (see Model).
+        </p>
+        <p id="data-canonical-hint" class="meta-info data-source-line"></p>
+        <div class="row" style="display: flex; gap: 1rem; flex-wrap: wrap; align-items: flex-end">
+          <div style="flex: 1; min-width: 140px">
+            <label for="filter-strain">Strain contains</label>
+            <input type="text" id="filter-strain" placeholder="e.g. Coxsackie" />
+          </div>
+          <div style="width: 100px">
+            <label for="filter-ph">pH</label>
+            <input type="number" id="filter-ph" step="0.1" />
+          </div>
+          <div style="width: 100px">
+            <label for="filter-temp">Temp °C</label>
+            <input type="number" id="filter-temp" step="0.5" />
+          </div>
+          <button type="button" class="primary" id="btn-load-table">Load / refresh</button>
+          <button type="button" id="btn-sync-estimator-filters" class="secondary">
+            Copy pH &amp; temp from estimator
+          </button>
+        </div>
+        <p id="table-count" class="meta-info" style="margin-top: 1rem"></p>
+        <div class="table-wrap">
+          <table class="data" id="data-table">
+            <thead id="data-thead"></thead>
+            <tbody id="data-tbody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="panel-model" class="panel" role="tabpanel">
+        <p id="model-desc" class="meta-info">Loading…</p>
+        <p class="meta-info">
+          <a id="github-link" href="https://github.com/almabartholow/Virus-Inactivation-Analysis">GitHub</a>
+          — notebook, R scripts, app.
+        </p>
+        <h3 style="margin-bottom: 0.5rem; font-size: 1rem">Pipeline</h3>
+        <ol class="meta-info workflow-steps">
+          <li><strong>Submit</strong> → queued JSONL (not Lit_Review).</li>
+          <li><strong>Merge</strong> → approved rows into Virus.xlsx <code>Lit_Review</code>.</li>
+          <li><strong>Retrain / compare</strong> → candidate models in R vs baseline (metrics below).</li>
+          <li><strong>Promote</strong> → replace <code>chlorine_tool/artifacts/rf_nonlinear.rds</code>, restart.</li>
+        </ol>
+        <h3 style="margin: 1.25rem 0 0.5rem; font-size: 1rem">Candidate vs baseline (in R; not on this site)</h3>
+        <ul class="meta-info workflow-steps">
+          <li><strong>R², RMSE</strong> — holdout or CV predictions vs <code>Constant</code>.</li>
+          <li><strong>OOB</strong> — ranger <code>prediction.error</code> / derived R².</li>
+          <li><strong>k-fold CV R²</strong> — caret or manual folds.</li>
+          <li><strong>LOO</strong> — small <em>n</em> only; costly for large forests.</li>
+        </ul>
+        <p class="meta-info">Do not rely on training R² alone; use OOB and/or CV before adding complexity.</p>
+        <h3 style="margin: 1.25rem 0 0.5rem; font-size: 1rem">Recorded benchmarks</h3>
+        <p id="benchmark-hint" class="meta-info"></p>
+        <div id="benchmark-table-wrap" class="table-wrap" style="display: none">
+          <table class="data" id="benchmark-table">
+            <thead>
+              <tr>
+                <th>Model</th>
+                <th>Role</th>
+                <th>R²</th>
+                <th>RMSE</th>
+                <th>OOB R²</th>
+                <th>k-fold R²</th>
+                <th>LOO R²</th>
+                <th>Notes</th>
+              </tr>
+            </thead>
+            <tbody id="benchmark-tbody"></tbody>
+          </table>
+        </div>
+        <p id="benchmark-updated" class="meta-info data-source-line"></p>
+        <h3 style="margin: 1.25rem 0 0.5rem; font-size: 1rem">Notebook random forest (R / ranger)</h3>
+        <p class="meta-info">
+          Seven features; Faulkner training rows. Study effects from
+          <code>lmer(Constant ~ pH + Temperature + (pH + Temperature | Paper))</code>; prediction sets them to
+          zero.
+        </p>
+        <h3 style="margin: 1.25rem 0 0.5rem; font-size: 1rem">API note</h3>
+        <p id="model-future" class="meta-info">Loading…</p>
+        <pre class="code-block" id="r-snippet"># Virus_Analysis.ipynb — ranger model (nonlinear + study effects)
+rf_nonlinear &lt;- ranger(
+  Constant ~ pH + Temperature + pH_squared + Temperature_squared +
+    StudyEffect_Intercept + StudyEffect_pH + StudyEffect_Temperature,
+  data = cl_fit,
+  importance = "permutation",
+  num.trees = 5000,
+  seed = 111
+)</pre>
+        <h3 style="margin: 1.25rem 0 0.5rem; font-size: 1rem">Python training (this app)</h3>
+        <pre class="code-block" id="py-snippet"># R packages (once): Rscript chlorine_tool/r/install_deps.R
+# Train lme4 + ranger and save rf_nonlinear.rds:
+cd chlorine_tool
+python train_model.py
+
+# Optional — Model tab benchmark table:
+# copy model_benchmark.example.json → artifacts/model_benchmark.json (fill metrics from R)</pre>
+      </section>
+
+      <section id="panel-submit" class="panel" role="tabpanel">
+        <p class="meta-info">
+          Proposes a row for review. Saves to JSONL—<strong>not</strong> Lit_Review until you merge into
+          Excel. No auto-retrain. Use the <strong>Queue</strong> tab to list downloads.
+        </p>
+        <p class="meta-info">Fill strain/citation/k when you can; helps future multi-factor models in R.</p>
+        <div class="row">
+          <label for="sub-name">Your name (optional)</label>
+          <input type="text" id="sub-name" />
+        </div>
+        <div class="row">
+          <label for="sub-email">Email (optional)</label>
+          <input type="email" id="sub-email" />
+        </div>
+        <div class="row">
+          <label for="sub-citation">Citation / DOI / link</label>
+          <textarea id="sub-citation" placeholder="Paper reference"></textarea>
+        </div>
+        <div class="row">
+          <label for="sub-strain">Strain / virus (optional; not in current RF)</label>
+          <input type="text" id="sub-strain" />
+        </div>
+        <div class="row" style="display: flex; gap: 1rem">
+          <div style="flex: 1">
+            <label for="sub-ph">pH</label>
+            <input type="number" id="sub-ph" step="0.1" />
+          </div>
+          <div style="flex: 1">
+            <label for="sub-temp">Temperature °C</label>
+            <input type="number" id="sub-temp" step="0.5" />
+          </div>
+          <div style="flex: 1">
+            <label for="sub-k">Rate constant (optional)</label>
+            <input type="number" id="sub-k" step="any" />
+          </div>
+        </div>
+        <div class="row">
+          <label for="sub-notes">Notes</label>
+          <textarea id="sub-notes"></textarea>
+        </div>
+        <button type="button" class="primary" id="btn-submit">Submit</button>
+        <p id="submit-feedback" class="meta-info" style="margin-top: 1rem"></p>
+      </section>
+
+      <section id="panel-queue" class="panel" role="tabpanel">
+        <p class="meta-info">
+          Pending submissions: <code>chlorine_tool/data/submissions.jsonl</code>. Approve by merging rows into
+          Virus.xlsx <code>Lit_Review</code> offline, then reload the Data tab.
+        </p>
+        <div class="row" style="display: flex; gap: 0.75rem; flex-wrap: wrap; align-items: center">
+          <button type="button" class="primary" id="btn-queue-refresh">Refresh</button>
+          <a class="queue-download" href="/api/submissions/download" download>Download JSONL</a>
+        </div>
+        <p id="queue-status" class="meta-info" style="margin-top: 0.75rem"></p>
+        <div class="table-wrap">
+          <table class="data" id="queue-table">
+            <thead id="queue-thead"></thead>
+            <tbody id="queue-tbody"></tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      Research use—confirm against primary sources. Data tab = Virus.xlsx; Estimator = deployed
+      <code>rf_nonlinear.rds</code>.
+      <a href="https://github.com/almabartholow/Virus-Inactivation-Analysis">GitHub</a>
+    </footer>
+
+    <script src="/app.js"></script>
+  </body>
+</html>

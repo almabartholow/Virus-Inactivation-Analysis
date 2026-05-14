@@ -1,0 +1,26 @@
+{
+  "updated_at": "2026-05-04T12:00:00Z",
+  "note": "Paste metrics from R (notebook or scripts). Use null if not computed.",
+  "models": [
+    {
+      "name": "rf_nonlinear (deployed baseline)",
+      "role": "baseline",
+      "r2": null,
+      "rmse": null,
+      "oob_r2": null,
+      "kfold_r2": null,
+      "loo_r2": null,
+      "notes": "lme4 + ranger, Faulkner Lit_Review"
+    },
+    {
+      "name": "candidate example",
+      "role": "candidate",
+      "r2": null,
+      "rmse": null,
+      "oob_r2": null,
+      "kfold_r2": null,
+      "loo_r2": null,
+      "notes": "e.g. extra factor — replace when you have numbers"
+    }
+  ]
+}

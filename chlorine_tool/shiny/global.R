@@ -1,5 +1,9 @@
 # Shared paths and helpers for the chlorine_tool Shiny app.
 # Run: shiny::runApp("chlorine_tool/shiny") from the repo root (or any cwd if CHLORINE_TOOL_ROOT is set).
+#
+# shinyapps/rsconnect: publishing only chlorine_tool/shiny/ does NOT include ../artifacts/ or ../static/.
+# Ship rf_nonlinear.rds under shiny/artifacts/, Virus.xlsx next to app.R, and keep shiny/static/style.css
+# in sync with ../static/style.css (or publish from chlorine_tool with appPrimaryDoc = "shiny/app.R").
 
 # Keep startup minimal: shinyapps.io serves the bundle from a read-only tree and can
 # fail if heavy/native deps error at attach time. readxl / ranger / DT load on demand.
@@ -10,48 +14,187 @@ suppressPackageStartupMessages({
 
 `%||%` <- function(x, y) if (is.null(x) || (length(x) == 1L && !nzchar(as.character(x)))) y else x
 
+# rf_nonlinear.rds may live under chlorine_tool/artifacts/ (tracked for Shiny/rsconnect).
+# When resolve_chlorine_tool_root() lands on the wrong directory, walk up from the
+# Shiny app folder (and getwd()) until we find .../artifacts/rf_nonlinear.rds.
+discover_tool_root_via_rds <- function() {
+  rds_rel <- file.path("artifacts", "rf_nonlinear.rds")
+  # Tool root = directory that directly contains artifacts/rf_nonlinear.rds
+  tool_root_here <- function(dir) {
+    if (!nzchar(dir) || !dir.exists(dir)) {
+      return(NULL)
+    }
+    d <- normalizePath(dir, winslash = "/", mustWork = FALSE)
+    if (file.exists(file.path(d, rds_rel))) {
+      return(d)
+    }
+    # Repo layout: getwd() is the clone root and the model is under chlorine_tool/
+    sub <- normalizePath(file.path(d, "chlorine_tool"), winslash = "/", mustWork = FALSE)
+    if (nzchar(sub) && dir.exists(sub) && file.exists(file.path(sub, rds_rel))) {
+      return(sub)
+    }
+    NULL
+  }
+  starts <- character()
+  if (exists(".CHLORINE_SHINY_APP_DIR", envir = .GlobalEnv, inherits = FALSE)) {
+    ap <- tryCatch(
+      normalizePath(
+        as.character(get(".CHLORINE_SHINY_APP_DIR", envir = .GlobalEnv)),
+        winslash = "/",
+        mustWork = FALSE
+      ),
+      error = function(e) NA_character_
+    )
+    if (!is.na(ap) && nzchar(ap) && dir.exists(ap)) {
+      starts <- c(starts, ap)
+    }
+  }
+  wd <- tryCatch(normalizePath(getwd(), winslash = "/", mustWork = FALSE), error = function(e) NA_character_)
+  if (!is.na(wd) && nzchar(wd) && dir.exists(wd)) {
+    starts <- c(starts, wd)
+  }
+  starts <- unique(starts[nzchar(starts) & dir.exists(starts)])
+  for (st in starts) {
+    cur <- st
+    for (.hop in seq_len(12L)) {
+      if (!nzchar(cur) || !dir.exists(cur)) {
+        break
+      }
+      hit <- tool_root_here(cur)
+      if (!is.null(hit)) {
+        return(hit)
+      }
+      nxt <- dirname(cur)
+      if (identical(nxt, cur)) {
+        break
+      }
+      cur <- nxt
+    }
+  }
+  NULL
+}
+
 resolve_chlorine_tool_root <- function() {
   env <- Sys.getenv("CHLORINE_TOOL_ROOT", "")
   if (nzchar(env) && dir.exists(env)) {
     return(normalizePath(env))
   }
-  wd <- normalizePath(getwd())
 
-  pick_with_artifacts <- function(root) {
+  tool_bundle_ok <- function(root) {
+    if (!nzchar(root) || !dir.exists(root)) {
+      return(FALSE)
+    }
     r <- normalizePath(root, winslash = "/", mustWork = FALSE)
+    static <- file.path(r, "static")
+    rds <- file.path(r, "artifacts", "rf_nonlinear.rds")
+    dir.exists(static) && file.exists(rds)
+  }
+
+  # Set in app.R immediately before sys.source() — always the folder that contains app.R + global.R
+  if (exists(".CHLORINE_SHINY_APP_DIR", envir = .GlobalEnv, inherits = FALSE)) {
+    ap <- get(".CHLORINE_SHINY_APP_DIR", envir = .GlobalEnv)
+    ap <- tryCatch(normalizePath(as.character(ap), winslash = "/", mustWork = FALSE), error = function(e) "")
+    if (nzchar(ap) && dir.exists(ap)) {
+      parent_app <- tryCatch(
+        normalizePath(file.path(ap, ".."), winslash = "/", mustWork = FALSE),
+        error = function(e) ""
+      )
+      # Standard repo layout: .../chlorine_tool/shiny/ -> tool root is parent
+      if (nzchar(parent_app) && dir.exists(parent_app)) {
+        if (tool_bundle_ok(parent_app)) {
+          return(normalizePath(parent_app, winslash = "/", mustWork = FALSE))
+        }
+        if (dir.exists(file.path(parent_app, "static")) &&
+            tolower(basename(parent_app)) == "chlorine_tool") {
+          return(normalizePath(parent_app, winslash = "/", mustWork = FALSE))
+        }
+        # Original resolver: any sibling of shiny/ with an artifacts/ tree (folder
+        # may not be named "chlorine_tool"; static/rds checks are optional here).
+        if (dir.exists(file.path(parent_app, "artifacts"))) {
+          return(normalizePath(parent_app, winslash = "/", mustWork = FALSE))
+        }
+      }
+      # rsconnect often bundles only shiny/: parent on the server is not chlorine_tool/, so
+      # ../artifacts/rf_nonlinear.rds is never uploaded — ship a copy under shiny/artifacts/.
+      self_rds <- file.path(ap, "artifacts", "rf_nonlinear.rds")
+      if (file.exists(self_rds)) {
+        return(normalizePath(ap, winslash = "/", mustWork = FALSE))
+      }
+      # Flat bundle (e.g. some deployments): app root is tool root
+      if (tool_bundle_ok(ap)) {
+        return(normalizePath(ap, winslash = "/", mustWork = FALSE))
+      }
+    }
+  }
+
+  wd0 <- getwd()
+  wd <- tryCatch(normalizePath(wd0, winslash = "/", mustWork = FALSE), error = function(e) wd0)
+
+  cand <- character()
+  push <- function(x) {
+    if (length(x)) {
+      cand <<- c(cand, x)
+    }
+  }
+  push(wd)
+  parent1 <- tryCatch(normalizePath(file.path(wd, ".."), winslash = "/", mustWork = FALSE), error = function(e) NA_character_)
+  if (!is.na(parent1) && nzchar(parent1)) {
+    push(parent1)
+  }
+  push(normalizePath(file.path(wd, "chlorine_tool"), winslash = "/", mustWork = FALSE))
+  if (!is.na(parent1) && nzchar(parent1)) {
+    push(normalizePath(file.path(parent1, "chlorine_tool"), winslash = "/", mustWork = FALSE))
+  }
+
+  cand <- unique(cand[nzchar(cand)])
+  cand <- cand[vapply(cand, dir.exists, NA)]
+
+  for (r in cand) {
+    if (tool_bundle_ok(r)) {
+      return(normalizePath(r, winslash = "/", mustWork = FALSE))
+    }
+  }
+
+  for (r in cand) {
     if (!nzchar(r) || !dir.exists(r)) {
-      return(NULL)
+      next
     }
-    if (dir.exists(file.path(r, "artifacts"))) {
-      return(r)
+    rr <- normalizePath(r, winslash = "/", mustWork = FALSE)
+    if (dir.exists(file.path(rr, "static")) && tolower(basename(rr)) == "chlorine_tool") {
+      return(rr)
     }
-    NULL
+    # Tool root with artifacts/ even if basename != "chlorine_tool" (renamed clone).
+    if (dir.exists(file.path(rr, "artifacts")) &&
+        (dir.exists(file.path(rr, "static")) || dir.exists(file.path(rr, "shiny")))) {
+      return(rr)
+    }
+  }
+  if (!is.na(parent1) && nzchar(parent1) && dir.exists(parent1)) {
+    p1 <- normalizePath(parent1, winslash = "/", mustWork = FALSE)
+    if (tolower(basename(wd)) == "shiny" && dir.exists(file.path(p1, "artifacts"))) {
+      return(p1)
+    }
   }
 
-  # Repo layout: .../chlorine_tool/shiny with sibling artifacts/
-  if (!is.null(p <- pick_with_artifacts(wd))) {
-    return(p)
-  }
-  if (basename(wd) == "shiny") {
-    up <- normalizePath(file.path(wd, ".."))
-    if (!is.null(p <- pick_with_artifacts(up))) {
-      return(p)
-    }
-  }
-  up <- normalizePath(file.path(wd, ".."))
-  if (!is.null(p <- pick_with_artifacts(up))) {
-    return(p)
-  }
-
-  # shinyapps.io (and other hosts): bundle is only app/ — no parent artifacts/.
-  # Use app working directory so global.R does not stop(); model/data paths stay empty until you bundle files or set CHLORINE_TOOL_ROOT.
   wd
 }
 
 CHLORINE_TOOL_ROOT <- resolve_chlorine_tool_root()
+if (!file.exists(file.path(CHLORINE_TOOL_ROOT, "artifacts", "rf_nonlinear.rds"))) {
+  alt <- discover_tool_root_via_rds()
+  if (!is.null(alt)) {
+    CHLORINE_TOOL_ROOT <- alt
+  }
+}
 REPO_ROOT <- normalizePath(file.path(CHLORINE_TOOL_ROOT, ".."))
 ARTIFACTS <- file.path(CHLORINE_TOOL_ROOT, "artifacts")
 RDS_PATH <- file.path(ARTIFACTS, "rf_nonlinear.rds")
+if (file.exists(RDS_PATH)) {
+  np <- normalizePath(RDS_PATH, winslash = "/", mustWork = FALSE)
+  if (!is.na(np) && nzchar(np)) {
+    RDS_PATH <- np
+  }
+}
 META_PATH <- file.path(ARTIFACTS, "model_meta.json")
 BENCHMARK_PATH <- file.path(ARTIFACTS, "model_benchmark.json")
 bench_ex_candidates <- c(
@@ -63,12 +206,17 @@ BENCHMARK_EXAMPLE <- {
   if (length(hit)) hit[[1]] else bench_ex_candidates[[1]]
 }
 
-# Local clone: .../chlorine_tool/shiny with sibling ../artifacts. Hosted bundle: only app dir.
+# Local clone: model under chlorine_tool/artifacts (whether getwd is shiny/, chlorine_tool/, or repo root).
 likely_full_repo <- function() {
-  wd <- normalizePath(getwd(), winslash = "/", mustWork = FALSE)
-  nzchar(wd) &&
-    basename(wd) == "shiny" &&
-    dir.exists(file.path(wd, "..", "artifacts"))
+  wd <- tryCatch(normalizePath(getwd(), winslash = "/", mustWork = FALSE), error = function(e) "")
+  if (!nzchar(wd)) {
+    return(FALSE)
+  }
+  if (tolower(basename(wd)) == "shiny") {
+    return(file.exists(file.path(wd, "..", "artifacts", "rf_nonlinear.rds")))
+  }
+  file.exists(file.path(wd, "chlorine_tool", "artifacts", "rf_nonlinear.rds")) ||
+    file.exists(file.path(wd, "artifacts", "rf_nonlinear.rds"))
 }
 
 msg_no_model_rds <- function() {
@@ -129,24 +277,126 @@ choose_submissions_path <- function(root) {
 }
 
 SUBMISSIONS_PATH <- choose_submissions_path(CHLORINE_TOOL_ROOT)
-STATIC_DIR <- file.path(CHLORINE_TOOL_ROOT, "static")
-if (dir.exists(STATIC_DIR)) {
+
+resolve_chlorine_static_dir <- function(tool_root) {
+  has_style <- function(dir) {
+    nzchar(dir) && file.exists(file.path(dir, "style.css"))
+  }
+  candidates <- character()
+  pushc <- function(x) {
+    if (length(x)) {
+      candidates <<- unique(c(candidates, x))
+    }
+  }
+  pushc(file.path(tool_root, "static"))
+  if (exists(".CHLORINE_SHINY_APP_DIR", envir = .GlobalEnv, inherits = FALSE)) {
+    apd <- tryCatch(
+      normalizePath(
+        as.character(get(".CHLORINE_SHINY_APP_DIR", envir = .GlobalEnv)),
+        winslash = "/",
+        mustWork = FALSE
+      ),
+      error = function(e) NA_character_
+    )
+    if (!is.na(apd) && nzchar(apd) && dir.exists(apd)) {
+      pushc(file.path(apd, "static"))
+      cur <- apd
+      for (.hop in seq_len(12L)) {
+        if (!nzchar(cur) || !dir.exists(cur)) {
+          break
+        }
+        pushc(file.path(cur, "static"))
+        nxt <- dirname(cur)
+        if (identical(nxt, cur)) {
+          break
+        }
+        cur <- nxt
+      }
+    }
+  }
+  candidates <- candidates[vapply(candidates, function(d) nzchar(d), logical(1))]
+  for (d in candidates) {
+    if (has_style(d)) {
+      return(normalizePath(d, winslash = "/", mustWork = FALSE))
+    }
+  }
+  NA_character_
+}
+
+STATIC_DIR <- resolve_chlorine_static_dir(CHLORINE_TOOL_ROOT)
+if (!is.na(STATIC_DIR) && nzchar(STATIC_DIR) && dir.exists(STATIC_DIR)) {
   shiny::addResourcePath("chlorine_static", STATIC_DIR)
 }
 
 find_xlsx <- function() {
-  roots <- unique(
+  # Fast path: common layouts (avoids relying only on ascent order).
+  shiny_app_base <- ""
+  if (exists(".CHLORINE_SHINY_APP_DIR", envir = .GlobalEnv, inherits = FALSE)) {
+    shiny_app_base <- tryCatch(
+      normalizePath(
+        as.character(get(".CHLORINE_SHINY_APP_DIR", envir = .GlobalEnv)),
+        winslash = "/",
+        mustWork = FALSE
+      ),
+      error = function(e) ""
+    )
+  }
+  xlsx_bases <- unique(
     c(
-      REPO_ROOT,
-      CHLORINE_TOOL_ROOT,
-      normalizePath(getwd(), winslash = "/", mustWork = FALSE),
-      file.path(CHLORINE_TOOL_ROOT, "www")
+      shiny_app_base,
+      tryCatch(normalizePath(CHLORINE_TOOL_ROOT, winslash = "/", mustWork = FALSE), error = function(e) ""),
+      tryCatch(normalizePath(file.path(CHLORINE_TOOL_ROOT, "shiny"), winslash = "/", mustWork = FALSE), error = function(e) ""),
+      tryCatch(normalizePath(file.path(CHLORINE_TOOL_ROOT, ".."), winslash = "/", mustWork = FALSE), error = function(e) ""),
+      tryCatch(normalizePath(file.path(CHLORINE_TOOL_ROOT, "..", ".."), winslash = "/", mustWork = FALSE), error = function(e) "")
     )
   )
-  for (r in roots) {
-    if (!nzchar(r) || !dir.exists(r)) {
-      next
+  xlsx_bases <- xlsx_bases[vapply(xlsx_bases, function(b) nzchar(b) && dir.exists(b), logical(1))]
+  for (base in xlsx_bases) {
+    for (name in c("Virus.xlsx", "virus.xlsx")) {
+      p <- file.path(base, name)
+      if (file.exists(p)) {
+        return(normalizePath(p, winslash = "/", mustWork = FALSE))
+      }
     }
+  }
+  roots <- character()
+  add_ascent <- function(start, max_hops = 5L) {
+    if (is.null(start) || !nzchar(start) || !dir.exists(start)) {
+      return()
+    }
+    cur <- normalizePath(start, winslash = "/", mustWork = FALSE)
+    for (i in seq_len(max_hops)) {
+      if (!nzchar(cur) || !dir.exists(cur)) {
+        break
+      }
+      roots <<- unique(c(roots, cur))
+      nxt <- dirname(cur)
+      if (identical(nxt, cur)) {
+        break
+      }
+      cur <- nxt
+    }
+  }
+  add_ascent(REPO_ROOT)
+  add_ascent(CHLORINE_TOOL_ROOT)
+  add_ascent(tryCatch(normalizePath(getwd(), winslash = "/", mustWork = FALSE), error = function(e) NA_character_))
+  if (exists(".CHLORINE_SHINY_APP_DIR", envir = .GlobalEnv, inherits = FALSE)) {
+    ap <- tryCatch(
+      normalizePath(
+        as.character(get(".CHLORINE_SHINY_APP_DIR", envir = .GlobalEnv)),
+        winslash = "/",
+        mustWork = FALSE
+      ),
+      error = function(e) NA_character_
+    )
+    if (!is.na(ap) && nzchar(ap)) {
+      add_ascent(ap)
+    }
+  }
+  roots <- unique(c(roots, file.path(CHLORINE_TOOL_ROOT, "www")))
+  roots <- roots[vapply(roots, function(r) nzchar(r) && dir.exists(r), logical(1))]
+  roots <- unique(roots)
+  for (r in roots) {
     for (name in c("Virus.xlsx", "virus.xlsx")) {
       p <- file.path(r, name)
       if (file.exists(p)) {
@@ -155,6 +405,16 @@ find_xlsx <- function() {
     }
   }
   NULL
+}
+
+if (nzchar(Sys.getenv("CHLORINE_DEBUG_PATHS", ""))) {
+  xp_dbg <- tryCatch(find_xlsx(), error = function(e) conditionMessage(e))
+  message(
+    "CHLORINE paths:\n",
+    "  CHLORINE_TOOL_ROOT=", CHLORINE_TOOL_ROOT, "\n",
+    "  RDS_PATH=", RDS_PATH, " (exists=", file.exists(RDS_PATH), ")\n",
+    "  Virus.xlsx: ", format(xp_dbg)
+  )
 }
 
 read_lit_review <- function(xlsx_path) {

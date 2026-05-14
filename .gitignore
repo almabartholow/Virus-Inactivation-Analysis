@@ -53,10 +53,13 @@ desktop.ini
 # Stan (for brms/Bayesian models)
 *.stan_compiled
 
-# --- Trained / serialized models (regenerate locally; do not publish) ---
+# --- Trained / serialized models ---
+# Ship rf_nonlinear.rds for Shiny/rsconnect; ignore other ad-hoc .rds exports.
 *.rds
+!chlorine_tool/artifacts/rf_nonlinear.rds
+!chlorine_tool/shiny/artifacts/rf_nonlinear.rds
 *.joblib
-# Explicit: large brms object saved from Virus_Analysis.ipynb (not in git; restore from backup or re-save)
+# Large brms object from Virus_Analysis.ipynb (restore from backup or re-save)
 /bayes_model_2.2.rds
 
 # --- Project data: review copies (not for publication) ---
@@ -66,16 +69,16 @@ CVB5_Review.xlsx
 # --- chlorine_tool: generated artifacts & local-only files ---
 chlorine_tool/artifacts/*
 !chlorine_tool/artifacts/.gitkeep
+!chlorine_tool/artifacts/rf_nonlinear.rds
 
 chlorine_tool/model_benchmark.json
 
 chlorine_tool/data/submissions.jsonl
 
-# Shiny: deploy-time copies (bundle with rsconnect from local paths; not source of truth)
-chlorine_tool/shiny/Virus.xlsx
-chlorine_tool/shiny/virus.xlsx
+# Shiny: optional extra artifacts (model lives under chlorine_tool/artifacts/)
 chlorine_tool/shiny/artifacts/*
 !chlorine_tool/shiny/artifacts/.gitkeep
+!chlorine_tool/shiny/artifacts/rf_nonlinear.rds
 
 # rsconnect / Posit publishing (account URL, app id — keep local only)
 **/rsconnect/

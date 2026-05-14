@@ -4,6 +4,12 @@
 # Override paths: Sys.setenv(CHLORINE_TOOL_ROOT = "C:/path/to/chlorine_tool")
 #
 # shinyapps.io may evaluate app.R before global.R is attached; load helpers explicitly.
+# Capture app directory here — getwd() can differ later (RStudio jobs, background workers).
+assign(
+  ".CHLORINE_SHINY_APP_DIR",
+  normalizePath(getwd(), winslash = "/", mustWork = FALSE),
+  envir = .GlobalEnv
+)
 global_r_path <- file.path(getwd(), "global.R")
 if (!file.exists(global_r_path)) {
   stop("Missing global.R in ", getwd(), call. = FALSE)
@@ -436,6 +442,14 @@ server <- function(input, output, session) {
       dot_class <- "status-dot ok"
       txt <- sprintf("Model and workbook loaded. Literature table: %s row(s).", n_lit)
       title <- xp
+    } else if (model_ok && !is.null(xp) && is.na(n_lit)) {
+      dot_class <- "status-dot ok"
+      txt <- paste0(
+        "Model and workbook found, but Lit_Review could not be read (",
+        "close Virus.xlsx in Excel if it is open, or check the file path). ",
+        basename(xp)
+      )
+      title <- xp
     } else if (model_ok) {
       dot_class <- "status-dot ok"
       txt <- if (likely_full_repo()) {
@@ -613,11 +627,11 @@ server <- function(input, output, session) {
           class = "results-card-inner estimate-results-wrap",
           tags$table(
             class = "estimate-results-table",
-            tags$caption("Inactivation rate constant (k)"),
+            tags$caption(class = "estimate-section-caption", "Inactivation rate constant (k)"),
             tags$tbody(
               tags$tr(
                 tags$th(scope = "row", "Mean (across trees)"),
-                tags$td(class = "est-num", format_num(out$mean))
+                tags$td(class = "est-num est-num-primary", format_num(out$mean))
               ),
               tags$tr(
                 tags$th(scope = "row", "2.5th–97.5th percentile band"),
@@ -631,11 +645,11 @@ server <- function(input, output, session) {
           ),
           tags$table(
             class = "estimate-results-table estimate-ct-table",
-            tags$caption("4-log inactivation CT"),
+            tags$caption(class = "estimate-section-caption", "4-log inactivation CT"),
             tags$tbody(
               tags$tr(
                 tags$th(scope = "row", "Conservative (5th pct. k)"),
-                tags$td(class = "est-num est-ct-key", format_num(out$ct_4log_conservative))
+                tags$td(class = "est-num est-num-primary", format_num(out$ct_4log_conservative))
               ),
               tags$tr(
                 tags$th(scope = "row", "From mean k"),
